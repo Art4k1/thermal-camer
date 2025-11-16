@@ -1,0 +1,143 @@
+<!DOCTYPE html><html>
+<head>
+<meta charset="UTF-8">
+<title>Камера з фільтрами</title>
+<style>
+    body {
+        background: #000;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        margin: 0;
+        padding: 15px;
+        font-family: Arial;
+    }
+    canvas {
+        width: 90vw;
+        border: 2px solid #00ffd9;
+        border-radius: 12px;
+    }
+    select, button, input {
+        padding: 10px;
+        font-size: 16px;
+        border-radius: 8px;
+        border: none;
+    }
+</style>
+</head>
+<body><h2>Камера з фільтрами</h2><video id="video" autoplay playsinline style="display:none"></video> <canvas id="canvas"></canvas>
+
+<select id="mode">
+    <option value="normal">Звичайний</option>
+    <option value="thermal">Тепловізор</option>
+    <option value="night">Нічне бачення</option>
+</select><div>
+    <button id="photoBtn">📸 Фото</button>
+    <button id="recordBtn">⏺ Запис</button>
+    <button id="zoomIn">➕ Zoom</button>
+    <button id="zoomOut">➖ Zoom</button>
+</div><canvas id="photo" style="display:none"></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const mode = document.getElementById("mode");
+const photoCanvas = document.getElementById("photo");
+const photoBtn = document.getElementById("photoBtn");
+const recordBtn = document.getElementById("recordBtn");
+
+let zoom = 1;
+let recording = false;
+let recorder;
+let recordedChunks = [];
+
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        photoCanvas.width = video.videoWidth;
+        photoCanvas.height = video.videoHeight;
+        draw();
+    };
+});
+
+function thermal(r,g,b){
+    let bright = (r+g+b)/3;
+    return [bright*2, 255-bright, Math.max(0, 200-bright*2)];
+}
+
+function night(r,g,b){
+    let bright = (r+g+b)/3;
+    return [0, bright*1.5, bright*3];
+}
+
+function draw(){
+    ctx.save();
+    ctx.scale(zoom, zoom);
+    ctx.drawImage(video, 0, 0, canvas.width/zoom, canvas.height/zoom);
+    ctx.restore();
+
+    if(mode.value !== "normal"){
+        let frame = ctx.getImageData(0,0,canvas.width,canvas.height);
+        let data = frame.data;
+
+        for(let i=0;i<data.length;i+=4){
+            let r=data[i], g=data[i+1], b=data[i+2];
+
+            if(mode.value === "thermal"){
+                [data[i],data[i+1],data[i+2]] = thermal(r,g,b);
+            }
+            else if(mode.value === "night"){
+                [data[i],data[i+1],data[i+2]] = night(r,g,b);
+            }
+        }
+        ctx.putImageData(frame,0,0);
+    }
+
+    requestAnimationFrame(draw);
+}
+
+photoBtn.onclick = ()=>{
+    let pctx = photoCanvas.getContext("2d");
+    pctx.drawImage(canvas,0,0);
+    let link = document.createElement("a");
+    link.download = "photo.png";
+    link.href = photoCanvas.toDataURL();
+    link.click();
+};
+
+recordBtn.onclick = ()=>{
+    if(!recording){
+        recordedChunks = [];
+        recorder = new MediaRecorder(canvas.captureStream());
+        recorder.ondataavailable = e => recordedChunks.push(e.data);
+        recorder.onstop = ()=>{
+            let blob = new Blob(recordedChunks,{type:"video/webm"});
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "video.webm";
+            link.click();
+        };
+        recorder.start();
+        recording = true;
+        recordBtn.textContent = "⏹ Зупинити";
+    } else {
+        recorder.stop();
+        recording = false;
+        recordBtn.textContent = "⏺ Запис";
+    }
+};
+
+document.getElementById("zoomIn").onclick = ()=>{
+    zoom += 0.1;
+};
+
+document.getElementById("zoomOut").onclick = ()=>{
+    zoom = Math.max(1, zoom - 0.1);
+};
+</script></body>
+</html>
